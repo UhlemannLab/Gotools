@@ -30,6 +30,14 @@
 #' @param marginal_size Relative size of the marginal panels.
 #' @param marginal_alpha Transparency applied to marginal densities or fills.
 #'
+#' @details With `statistics = TRUE`, also saves a separate PERMDISP PDF
+#'   with `.PM.` replaced by `.PERMDISP.` in the ordination filename.
+#'   Boxplots and sample points show bias-adjusted distances to the spatial
+#'   median, tested with 999 permutations. Facets and group combinations are
+#'   tested separately on the same complete-case samples as PERMANOVA.
+#'   PERMDISP does not adjust for covariates. Groups need at least two samples.
+#'   This PDF is also saved when `patchwork = TRUE`.
+#'
 #' @return PDF(s) and CSV tables on disk.
 #' @export
 Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
@@ -365,6 +373,72 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
     ann_df[[facet]] <- base::factor(ann_df[[facet]], levels = base::levels(pdataframe[[facet]]))
     ann_df
   }
+  # A separate dispersion plot for each metric/comparison, with facet-wise tests.
+  .permdisp_plot <- function(ps_obj, mvar, distance_metric) {
+    map <- data.frame(phyloseq::sample_data(ps_obj))
+    model_vars <- intersect(.perm_model_vars(mvar, cate.conf, strata_var), names(map))
+    map <- map[stats::complete.cases(map[, unique(c(model_vars, facet)), drop = FALSE]), , drop = FALSE]
+    map[[mvar]] <- .safe_levels(map[[mvar]], orders)
+    map <- map[!is.na(map[[mvar]]), , drop = FALSE]
+    panels <- if (is.null(facet)) list(map) else split(map, map[[facet]], drop = TRUE)
+    data_list <- ann_list <- list()
+    for (map_sub in panels) {
+      group <- droplevels(map_sub[[mvar]])
+      if (nlevels(group) < 2 || any(table(group) < 2)) {
+        warning("PERMDISP skipped: each of at least two groups needs two samples.")
+        next
+      }
+      ps_sub <- phyloseq::prune_samples(rownames(map_sub), ps_obj)
+      d <- phyloseq::distance(ps_sub, method = distance_metric)
+      # Align metadata explicitly to the distance matrix sample order.
+      map_sub <- map_sub[attr(d, "Labels"), , drop = FALSE]
+      group <- droplevels(map_sub[[mvar]])
+      perm <- if (is.null(strata_var)) 999 else
+        .mk_perm_block(map_sub[[strata_var]], mvar_vec = group)
+      result <- .gotools_permdisp(d, group, perm)
+      df <- data.frame(group = group, distance = unname(result$distance))
+      ann <- data.frame(x = Inf, y = Inf,
+                        label = sprintf("PERMDISP F=%.3f\np=%.3f", result$F, result$p))
+      if (!is.null(facet)) {
+        df[[facet]] <- map_sub[[facet]]
+        ann[[facet]] <- map_sub[[facet]][1]
+      }
+      if (!is.null(strata_var) && .is_strata_confounded(map_sub[[strata_var]], group)) {
+        ann$label <- paste(ann$label, "Unconstrained strata fallback", sep = "\n")
+      }
+      data_list[[length(data_list) + 1]] <- df
+      ann_list[[length(ann_list) + 1]] <- ann
+    }
+    if (length(data_list) == 0) return(NULL)
+    df <- dplyr::bind_rows(data_list)
+    ann <- dplyr::bind_rows(ann_list)
+    subtitle <- paste(c(
+      if (!is.null(cate.conf)) "Unadjusted dispersion (covariates not fitted)",
+      if (!is.null(strata_var)) paste("Permutation blocks:", strata_var)
+    ), collapse = "\n")
+    p <- ggplot2::ggplot(df, ggplot2::aes(x = group, y = distance, colour = group)) +
+      ggplot2::geom_boxplot(outlier.shape = NA, width = 0.55) +
+      ggplot2::geom_point(position = ggplot2::position_jitter(width = 0.12, height = 0, seed = 1),
+                          size = 1, alpha = 0.7) +
+      ggplot2::geom_text(data = ann, ggplot2::aes(x = x, y = y, label = label),
+                         inherit.aes = FALSE, hjust = 1.05, vjust = 1.1, size = 3) +
+      ggplot2::labs(x = mvar, y = "Distance to spatial median",
+                    title = sprintf("%s (%s)", mvar, distance_metric), subtitle = subtitle,
+                    caption = "Small-sample bias adjusted") +
+      ggplot2::theme_bw() +
+      ggplot2::theme(panel.grid = ggplot2::element_blank(), legend.position = "none",
+                     axis.text.x = ggplot2::element_text(angle = 45, hjust = 1),
+                     plot.title = ggplot2::element_text(size = 8, face = "bold"),
+                     plot.subtitle = ggplot2::element_text(size = 6)) +
+      ggplot2::scale_y_continuous(expand = ggplot2::expansion(mult = c(0.05, 0.25)))
+    if (!is.null(mycols)) p <- p + ggplot2::scale_colour_manual(values = mycols)
+    if (addnumber && is.null(facet)) {
+      counts <- table(df$group)
+      p <- p + ggplot2::scale_x_discrete(labels = function(x) paste0(x, " (n=", counts[x], ")"))
+    }
+    if (!is.null(facet)) p <- p + ggplot2::facet_wrap(stats::as.formula(paste("~", facet)), ncol = 1)
+    p
+  }
   # -----------------------------
 
   # sanity
@@ -379,6 +453,8 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
     if (.has_any(facet, mvar)) next
     if (.has_any(shapes, mvar)) next
 
+    dispersion_plots <- list()
+
     #------------------------------#
     # for group combination or not #
     #------------------------------#
@@ -388,8 +464,7 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
       group_comparisons <- lapply(seq_len(ncol(group.cbn)), function(i) group.cbn[,i])
 
       ord_meths = plot
-      if (!isTRUE(patchwork))
-        pdf(sprintf("%s/ordi.%s.PM.%s.%s.%s%s%s%s%s%s%s%s%s.pdf", out_path,
+      ord_file <- sprintf("%s/ordi.%s.PM.%s.%s.%s%s%s%s%s%s%s%s%s.pdf", out_path,
                     ord_meths, paste(distance_metrics, collapse = "+"), project, mvar,
                     ifelse(is.null(facet), "", paste(facet, ".", sep = "")),
                     ifelse(is.null(combination), "", paste("(cbn=",combination, ").", sep = "")),
@@ -399,7 +474,8 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
                     ifelse(ellipse == FALSE, "ellipse_FALSE.",
                            ifelse(ellipse == TRUE, "", paste("ellipse_", ellipse, ".", sep = ""))),
                     ifelse(is.null(strata_var), "", paste("(strata=", strata_var, ").", sep = "")),
-                    format(Sys.Date(), "%y%m%d")), height = height, width = width)
+                    format(Sys.Date(), "%y%m%d"))
+      if (!isTRUE(patchwork)) pdf(ord_file, height = height, width = width)
       plotlist <- list()
 
       for(i in seq_along(group_comparisons)){
@@ -573,6 +649,10 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
             }
           }
           # ===================================== #
+          if (statistics) {
+            dp <- .permdisp_plot(psIN.cbn.na, mvar, distance_metric)
+            if (!is.null(dp)) dispersion_plots[[length(dispersion_plots) + 1]] <- dp
+          }
 
           if (!is.null(facet) && facet %in% names(pdataframe)) {
             p <- p + facet_wrap(as.formula(sprintf("~ %s", facet)), scales="free_x", ncol = 1)
@@ -606,8 +686,7 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
     } else {
       # no combination
       ord_meths = plot
-      if (!isTRUE(patchwork))
-        pdf(sprintf("%s/ordi.%s.PM.%s.%s.%s%s%s%s%s%s%s%s%s.pdf", out_path,
+      ord_file <- sprintf("%s/ordi.%s.PM.%s.%s.%s%s%s%s%s%s%s%s%s.pdf", out_path,
                     ord_meths, paste(distance_metrics, collapse = "+"), project, mvar,
                     ifelse(is.null(facet), "", paste(facet, ".", sep = "")),
                     ifelse(is.null(combination), "", paste("(cbn=",combination, ").", sep = "")),
@@ -617,7 +696,8 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
                     ifelse(ellipse == FALSE, "ellipse_FALSE.",
                            ifelse(ellipse == TRUE, "", paste("ellipse_", ellipse, ".", sep = ""))),
                     ifelse(is.null(strata_var), "", paste("(strata=", strata_var, ").", sep = "")),
-                    format(Sys.Date(), "%y%m%d")), height = height, width = width)
+                    format(Sys.Date(), "%y%m%d"))
+      if (!isTRUE(patchwork)) pdf(ord_file, height = height, width = width)
       plotlist <- list()
       for(distance_metric in distance_metrics){
         mapping.sel <- data.frame(sample_data(psIN))
@@ -784,6 +864,10 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
           }
         }
         # ===================================== #
+        if (statistics) {
+          dp <- .permdisp_plot(psIN.na, mvar, distance_metric)
+          if (!is.null(dp)) dispersion_plots[[length(dispersion_plots) + 1]] <- dp
+        }
 
         if (!is.null(facet) && facet %in% names(pdataframe)) {
           mapping.sel.na.rem[[facet]] <- factor(mapping.sel.na.rem[[facet]], levels = orders)
@@ -812,6 +896,17 @@ Go_bdivPM <- function(psIN, cate.vars, project, orders, distance_metrics,
         dev.off()
       }
       plotlist_pw <- c(plotlist_pw, plotlist)
+    }
+    if (length(dispersion_plots) > 0) {
+      n_facet <- if (is.null(facet)) 1 else max(vapply(dispersion_plots, function(p) {
+        length(unique(p$data[[facet]]))
+      }, integer(1)))
+      dispersion_file <- file.path(dirname(ord_file),
+                                   sub(".PM.", ".PERMDISP.", basename(ord_file), fixed = TRUE))
+      grDevices::pdf(dispersion_file,
+                     width = max(5, 3 * plotCols), height = max(3.5, 3.5 * plotRows * n_facet))
+      .render_plotlist(dispersion_plots, cols = plotCols, rows = plotRows)
+      grDevices::dev.off()
     }
   }
   if (isTRUE(patchwork)) return(invisible(plotlist_pw))

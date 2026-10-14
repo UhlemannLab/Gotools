@@ -98,3 +98,12 @@ PDF(s) and CSV tables on disk.
 \description{
 Generate Biodiversity Plots for Microbiome Data
 }
+\details{
+With \code{statistics = TRUE}, also saves a separate PERMDISP PDF
+with \code{.PM.} replaced by \code{.PERMDISP.} in the ordination filename.
+Boxplots and sample points show bias-adjusted distances to the spatial
+median, tested with 999 permutations. Facets and group combinations are
+tested separately on the same complete-case samples as PERMANOVA.
+PERMDISP does not adjust for covariates. Groups need at least two samples.
+This PDF is also saved when \code{patchwork = TRUE}.
+}
