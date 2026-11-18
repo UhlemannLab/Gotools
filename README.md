@@ -37,14 +37,14 @@ For a fresh install, use this order:
 
 ```r
 if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("BiocManager")
-BiocManager::install("bbagy/Gotools", force = TRUE, update = FALSE, ask = FALSE)
+BiocManager::install("UhlemannLab/Gotools", force = TRUE, update = FALSE, ask = FALSE)
 library(Gotools)
 Gotool_dependency()
 ```
 
 This order matters.
 
-- `BiocManager::install("bbagy/Gotools")` installs the package itself. Unlike
+- `BiocManager::install("UhlemannLab/Gotools")` installs the package itself. Unlike
   `devtools::install_github()`, `BiocManager::install()` resolves both CRAN
   and Bioconductor repositories together, so `Gotools`'s Bioconductor-only
   imports (`ALDEx2`, `DESeq2`, `microbiome`, ...) are found instead of
@@ -65,7 +65,7 @@ This includes common microbiome dependencies such as `phyloseq`,
 If you update `Gotools` later, the clean refresh path is the same:
 
 ```r
-BiocManager::install("bbagy/Gotools", force = TRUE, update = FALSE, ask = FALSE)
+BiocManager::install("UhlemannLab/Gotools", force = TRUE, update = FALSE, ask = FALSE)
 library(Gotools)
 Gotool_dependency()
 ```
