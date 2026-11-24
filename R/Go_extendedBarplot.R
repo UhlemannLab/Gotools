@@ -270,7 +270,8 @@ Go_extendedBarplot <- function(psIN,
 
   data_long$Panel <- "Difference Mean with CI"
   point_data <- data_long
-  point_data$Panel <- "Mean Proportion"
+  mean_panel_label <- c(clr = "Mean CLR", relative = "Mean Proportion", tss = "Mean CPM")[[transform]]
+  point_data$Panel <- mean_panel_label
 
   pvalue_data <- data_long
   pvalue_panel_label <- if (isTRUE(use_adjusted_p) && p_adjust_method == "BH") {
@@ -284,7 +285,7 @@ Go_extendedBarplot <- function(psIN,
 
   plot_data <- rbind(data_long, point_data,pvalue_data)
 
-  plot_data$Panel <- factor(plot_data$Panel, levels = c("Mean Proportion", "Difference Mean with CI", pvalue_panel_label))
+  plot_data$Panel <- factor(plot_data$Panel, levels = c(mean_panel_label, "Difference Mean with CI", pvalue_panel_label))
 
   join_col <- if (func %in% names(wilcox_results)) func else func1
   merged_data <- dplyr::left_join(plot_data, wilcox_results, by = setNames(join_col, join_col))
@@ -354,7 +355,7 @@ Go_extendedBarplot <- function(psIN,
   if (nrow(merged_data.sig) > 0) {
     p <- ggplot2::ggplot(merged_data.sig, ggplot2::aes_string(x = "Reordered_Category", y = "Mean_Abundance", fill = mvar))
 
-    p1 <- p + ggplot2::geom_bar(data = subset(merged_data.sig, Panel == "Mean Proportion"),
+    p1 <- p + ggplot2::geom_bar(data = subset(merged_data.sig, Panel == mean_panel_label),
                                 stat = "identity", position = ggplot2::position_dodge(width = 0.7), width = 0.6)
 
     p2 <- p1 + ggplot2::geom_point(data = subset(merged_data.sig, Panel == "Difference Mean with CI"),
