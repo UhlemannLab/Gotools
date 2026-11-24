@@ -10,6 +10,7 @@
 #'
 #' Supported kingdoms:
 #' - "Bacteria": Requires Bracken; merges taxonomy with refined abundance.
+#'   Only species that Kraken2 assigns to d__Bacteria are kept.
 #' - "Virus": Kraken-only; missing taxonomic ranks are filled with "Unknown".
 #' - "Fungi": Kraken-only; missing ranks also filled with "Unknown".
 #'
@@ -134,6 +135,12 @@ Go_kraken2Tops <- function(kraken2, bracken=NULL, kingdom=c("Bacteria","Virus","
     if (is.null(bracken)) stop("Bracken file required for Bacteria.")
 
     br <- read.delim(bracken, sep="\t", header=TRUE, check.names=FALSE)
+
+    # Bracken lists species from every domain (plants, phages, human, archaea);
+    # keep only the species that Kraken2 places under d__Bacteria.
+    bact_ids <- kraken$ID[grepl("^d__Bacteria\\|.*\\|s__", kraken$ID)]
+    bact_ids <- gsub(" ", "_", sub(".*\\|s__", "s__", bact_ids))
+    br <- br[br$ID %in% bact_ids, , drop = FALSE]
 
     # Extract species id
     kraken$species_id <- sub(".*\\|s__", "s__", kraken$ID)

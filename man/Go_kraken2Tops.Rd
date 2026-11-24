@@ -28,6 +28,7 @@ phyloseq object with harmonized taxonomic ranks.
 Supported kingdoms:
 \itemize{
 \item "Bacteria": Requires Bracken; merges taxonomy with refined abundance.
+Only species that Kraken2 assigns to d__Bacteria are kept.
 \item "Virus": Kraken-only; missing taxonomic ranks are filled with "Unknown".
 \item "Fungi": Kraken-only; missing ranks also filled with "Unknown".
 }
