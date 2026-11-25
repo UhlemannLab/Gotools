@@ -15,3 +15,14 @@
     text-align: right;
     display: block;
 }
+
+/* Hover/focus tooltips for method notes (e.g. 5_2_DA.Rmd) */
+.go-tip { position: relative; display: inline-block; border-bottom: 1px dotted #555; cursor: help; font-weight: 600; }
+.go-tip:focus { outline: 1px solid #999; outline-offset: 2px; }
+.go-tip .go-tiptext { visibility: hidden; opacity: 0; position: absolute; z-index: 30; left: 0; top: 1.7em; width: 480px; max-width: 85vw; background: #fff; color: #222; border: 1px solid #bbb; border-radius: 6px; padding: 10px 12px; box-shadow: 0 4px 14px rgba(0,0,0,.18); font-weight: normal; font-size: 0.92em; line-height: 1.45; text-align: left; transition: opacity .15s; }
+.go-tip:hover .go-tiptext, .go-tip:focus .go-tiptext, .go-tip:focus-within .go-tiptext { visibility: visible; opacity: 1; }
+.go-tip .go-tipitem { display: list-item; list-style: disc; margin: 4px 0 0 1.2em; }
+/* Anchor the tooltip to its paragraph so it never runs off the right edge (browsers without :has keep the word anchor). */
+p:has(> .go-tip) { position: relative; }
+p:has(> .go-tip) > .go-tip { position: static; }
+p:has(> .go-tip) > .go-tip > .go-tiptext { left: 0; top: calc(100% + 4px); width: auto; max-width: 760px; }
